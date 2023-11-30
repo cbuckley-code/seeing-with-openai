@@ -1,85 +1,53 @@
 <script>
   import '../app.css';
-  import { onMount } from 'svelte';
 
-  let readingPassageData = null;
-  let recording = false;
-  let audioBlob = null;
+  let file = null;
+  let imageUrl = null;
+  let result = null;
+  let analyzing = false;
+  let query = "What's in the image"
 
-  let processingAudio = false
-  let readingResultData = null;
+  async function handleSubmit(event) {
+    analyzing = true;
 
-  onMount(async () => {
-    try {
-      const response = await fetch('http://127.0.0.1:8000/passages/?level=3');
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      let json = await response.json();
-      readingPassageData = JSON.parse(json);
-    } catch (error) {
-      console.error('There has been a problem with your fetch operation:', error);
-    }
-  });
+    event.preventDefault();
 
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      const audioChunks = [];
-
-      mediaRecorder.ondataavailable = event => {
-        audioChunks.push(event.data);
-      };
-
-      mediaRecorder.start();
-      recording = true;
-
-      mediaRecorder.onstop = () => {
-        audioBlob = new Blob(audioChunks);
-        recording = false;
-      };
-
-      setTimeout(() => {
-        mediaRecorder.stop()
-        setTimeout(() => {
-          handleSubmit();
-        }, 2000);
-      }, 5000); // Stop recording after 5 seconds (adjust as needed)
-    } catch (error) {
-      console.error('Error starting recording:', error);
-    }
-  }
-
-  async function handleSubmit() {
-    processingAudio = true;
-    if (audioBlob) {
+    if (file) {
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.wav');
+      formData.append('image', file);
 
-      // Submit the form data with the audio
-      const response = await fetch('http://127.0.0.1:8000/upload-audio/?passage='+readingPassageData?.passage, {
+      const response = await fetch('http://127.0.0.1:8000/upload-image/?query='+query, {
         method: 'POST',
         body: formData,
       });
 
       // Handle the response
-      let json = await response.json();
-      readingResultData = JSON.parse(json);
+      result = await response.json();
 
-      console.log("result {}", readingResultData);
-
-      audioBlob = null;
-      processingAudio = false;
-      recording = false;
+      analyzing = false;
+      file = null;
     }
   }
+
+  function handleFileChange(event) {
+    file = event.target.files[0];
+    if (file) {
+      imageUrl = URL.createObjectURL(file);
+    }
+  }
+
+  function handleFocus() {
+    result = null;
+    file = null;
+    imageUrl = null;
+  }
+
 </script>
 
 <div class="flex flex-col min-h-screen">
   <!-- Header -->
   <header class="bg-gray-800 text-white p-4">
-    <h1>Reading with OpenAI</h1>
+    <h1>Seeing with OpenAI</h1>
   </header>
 
   <!-- Main Content -->
@@ -88,71 +56,52 @@
     <div class="w-3/4 p-8 h-full">
       <!-- Rounded Pane with Header -->
       <div class="bg-white p-8 rounded-lg">
-        {#if readingPassageData}
-        <h2 class="text-xl font-bold mb-4">Let's try reading this.</h2>
-        {/if}
+        <h2 class="text-xl font-bold mb-4">OpenAI Vision</h2>
         <!-- Quoted Reading in a Rounded Pane -->
         <div class="quote-pane bg-gray-100 p-6 rounded-lg">
           <form on:submit={handleSubmit}>
+            <!-- New Query Input Field -->
+            <label for="query" class="block font-medium text-gray-700">Are you looking for something in particular?</label>
+            <input type="text" bind:value={query} on:focus={handleFocus} id="query" name="query" class="mt-1 block w-1/4 p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" />
 
-          {#if readingPassageData}
-          <p class="text-lg">"{readingPassageData.passage}"</p>
+            <!-- File Input Field -->
+            <label for="imageInput" class="block font-medium text-gray-700 mt-4">Select an image to analyze.</label>
+            <input type="file" id="imageInput" accept="image/*" on:change={handleFileChange} class="mt-1 block w-full" />
 
-          {#if !recording && !audioBlob}
-            <button class="mt-4 px-4 py-2 bg-blue-500 text-white rounded" on:click={startRecording}>Start Reading</button>
-          {:else if !audioBlob}
-            <p class="mt-4 text-green-500">Recording...</p>
-          {:else}
-            <p class="mt-4 text-blue-500">Analyzing your reading...</p>
-          {/if}
-          {:else}
-          <p>Loading data...</p>
-          {/if}
+            <!-- Submit Button -->
+            <button type="submit" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded">Analyze the image</button>
+            {#if analyzing}
+              <div>
+                <b>Checking the image out...</b>
+              </div>
+            {/if}
           </form>
         </div>
       </div>
 
       <!-- Reading result area -->
-      {#if readingResultData}
+      {#if result}
       <div class="bg-white p-8 mt-8 rounded-lg">
-        <h2 class="text-xl font-bold mb-4">Here's the results.</h2>
+          <h2 class="text-xl font-bold mb-4">Here's the results.</h2>
 
-        <!-- This is the analysis of the reading... -->
-        <div class="quote-pane bg-gray-100 p-6 rounded-lg">
-          <p class="text-lg font-bold">Original:</p>
-          "{readingResultData.passage}"
-          <p class="text-lg font-bold">Your Reading:</p>
-          "{readingResultData.reading}"
-          <p class="text-lg font-bold">Suggestions:</p>
-          <ul>
-          {#each readingResultData?.suggestions || [] as {area, suggestion}}
-            <li>{area}: {suggestion}</li>
-          {/each}
-          </ul>
-        </div>
+          <!-- Analysis Area -->
+          <div class="quote-pane bg-gray-100 p-6 rounded-lg flex items-start">
+            <!-- Image Display -->
+            {#if imageUrl}
+              <img src={imageUrl} alt="Preview" class="max-w-xs mr-4" />
+            {/if}
+
+            <!-- Text Display -->
+            <div>
+              <p class="text-lg font-bold">{query}</p>
+              <p>{result?.choices[0].message.content}</p>
+            </div>
+          </div>
       </div>
       {/if}
 
     </div>
 
-    <!-- Right Column -->
-    <div class="w-1/4 bg-gray-200 p-4">
-      <!-- Right column content -->
-      {#if readingPassageData}
-        <div>
-          <h3 class="text-lg font-semibold">Author</h3>
-          <p>{readingPassageData.author}</p>
-        </div>
-        <div>
-          <h3 class="text-lg font-semibold">Source</h3>
-          <p>{readingPassageData.source}</p>
-        </div>
-        <div>
-          <h3 class="text-lg font-semibold">Reason for Selection</h3>
-          <p>{readingPassageData.reason}</p>
-        </div>
-      {/if}
-    </div>
   </main>
 
   <!-- Footer -->
